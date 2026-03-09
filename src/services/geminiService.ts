@@ -18,7 +18,7 @@ export interface BlogRequest {
   targetAudience: string;
   tone: 'professional' | 'friendly' | 'informative';
   additionalInfo?: string;
-  logoBase64?: string | null;
+  logosBase64?: string[];
 }
 
 export interface BlogResponse {
@@ -28,33 +28,46 @@ export interface BlogResponse {
   thumbnailUrl?: string;
 }
 
-export const generateBlogImages = async (text: string, title: string, topic: string, logoBase64?: string | null) => {
+export const generateBlogImages = async (text: string, title: string, topic: string, logosBase64?: string[]) => {
   const ai = getAI();
+  // Using a more stable model if gemini-3-pro-image-preview fails, 
+  // but sticking to instructions for now. 
+  // Added a try-catch to handle potential model access issues.
   const model = "gemini-3-pro-image-preview";
 
-  const logoPart = logoBase64 ? {
+  const logoParts = (logosBase64 || []).map(logo => ({
     inlineData: {
-      mimeType: logoBase64.split(',')[0].split(':')[1].split(';')[0],
-      data: logoBase64.split(',')[1]
+      mimeType: logo.split(',')[0].split(':')[1].split(';')[0],
+      data: logo.split(',')[1]
     }
-  } : null;
+  }));
+
+  const logoInstruction = logoParts.length > 0 
+    ? `CRITICAL: You MUST include the provided ${logoParts.length} brand logo images in this design, placing them naturally (e.g., corners or as a watermark). Ensure all logos are clearly visible.` 
+    : "";
 
   // Generate 4 Infographics (16:9)
   const infographicPrompts = [
-    `Professional 16:9 infographic for '더나아짐'. Topic: ${topic}. Focus on inclusive education. Clean, modern, emerald green. Use ONLY Korean text. NO English. Short, clear Korean text: "함께하는 교육". ${logoPart ? "CRITICAL: You MUST include the provided brand logo image in this design, placing it prominently but naturally (e.g., top corner)." : ""}`,
-    `Professional 16:9 infographic for '더나아짐'. Topic: ${topic}. Focus on sports career research. Clean, modern, emerald green. Use ONLY Korean text. NO English. Short Korean text: "꿈을 향한 도전". ${logoPart ? "CRITICAL: You MUST include the provided brand logo image in this design." : ""}`,
-    `Professional 16:9 infographic for '더나아짐'. Topic: ${topic}. Focus on social contribution and ESG. Clean, modern, emerald green. Use ONLY Korean text. NO English. Short Korean text: "나눔의 가치". ${logoPart ? "CRITICAL: You MUST include the provided brand logo image in this design." : ""}`,
-    `Professional 16:9 infographic for '더나아짐'. Topic: ${topic}. Focus on future vision. Clean, modern, emerald green. Use ONLY Korean text. NO English. Short Korean text: "더 나은 내일". ${logoPart ? "CRITICAL: You MUST include the provided brand logo image in this design." : ""}`
+    `Professional 16:9 infographic for '더나아짐'. Topic: ${topic}. Focus on inclusive education. Clean, modern, emerald green. Use ONLY Korean text. NO English. Short, clear Korean text: "함께하는 교육". ${logoInstruction}`,
+    `Professional 16:9 infographic for '더나아짐'. Topic: ${topic}. Focus on sports career research. Clean, modern, emerald green. Use ONLY Korean text. NO English. Short Korean text: "꿈을 향한 도전". ${logoInstruction}`,
+    `Professional 16:9 infographic for '더나아짐'. Topic: ${topic}. Focus on social contribution and ESG. Clean, modern, emerald green. Use ONLY Korean text. NO English. Short Korean text: "나눔의 가치". ${logoInstruction}`,
+    `Professional 16:9 infographic for '더나아짐'. Topic: ${topic}. Focus on future vision. Clean, modern, emerald green. Use ONLY Korean text. NO English. Short Korean text: "더 나은 내일". ${logoInstruction}`
   ];
 
   const infographicPromises = infographicPrompts.map(prompt => {
-    const parts: any[] = [{ text: prompt }];
-    if (logoPart) parts.push(logoPart);
+    const parts: any[] = [{ text: prompt }, ...logoParts];
     
     return ai.models.generateContent({
       model,
       contents: { parts },
       config: { imageConfig: { aspectRatio: "16:9", imageSize: "1K" } },
+    }).catch(err => {
+      console.error("Infographic generation failed, trying fallback model:", err);
+      return ai.models.generateContent({
+        model: "gemini-2.5-flash-image",
+        contents: { parts },
+        config: { imageConfig: { aspectRatio: "16:9" } },
+      });
     });
   });
 
@@ -66,11 +79,10 @@ export const generateBlogImages = async (text: string, title: string, topic: str
           The text should be the main focus, centered. 
           STRICTLY NO ENGLISH. ONLY KOREAN.
           Ensure Korean characters are perfect. If there's a risk of corruption, use fewer words.
-          ${logoPart ? "CRITICAL: You MUST incorporate the provided brand logo image into this thumbnail design, ensuring it is 100% visible and correctly rendered." : ""}
+          ${logoInstruction}
           Modern, high-impact, emerald green accents.`;
 
-  const thumbnailParts: any[] = [{ text: thumbnailText }];
-  if (logoPart) thumbnailParts.push(logoPart);
+  const thumbnailParts: any[] = [{ text: thumbnailText }, ...logoParts];
 
   const thumbnailPromise = ai.models.generateContent({
     model,
@@ -81,6 +93,13 @@ export const generateBlogImages = async (text: string, title: string, topic: str
         imageSize: "1K"
       },
     },
+  }).catch(err => {
+    console.error("Thumbnail generation failed, trying fallback model:", err);
+    return ai.models.generateContent({
+      model: "gemini-2.5-flash-image",
+      contents: { parts: thumbnailParts },
+      config: { imageConfig: { aspectRatio: "1:1" } },
+    });
   });
 
   const [thumbnailResponse, ...infographicResponses] = await Promise.all([thumbnailPromise, ...infographicPromises]);
@@ -117,8 +136,15 @@ export const generateBlogPost = async (request: BlogRequest, onProgress?: (step:
     회사 정보: ${BETTERGIM_CONTEXT}
     응답은 제목 문자열만 보내주세요.
   `;
-  const titleRes = await ai.models.generateContent({ model, contents: [{ text: titlePrompt }] });
-  const title = titleRes.text?.trim() || request.topic;
+  let title = request.topic;
+  try {
+    const titleRes = await ai.models.generateContent({ model, contents: [{ text: titlePrompt }] });
+    title = titleRes.text?.trim() || request.topic;
+  } catch (err) {
+    console.error("Title generation failed, trying flash model:", err);
+    const titleRes = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: [{ text: titlePrompt }] });
+    title = titleRes.text?.trim() || request.topic;
+  }
 
   onProgress?.('body');
   const bodyPrompt = `
@@ -155,11 +181,18 @@ export const generateBlogPost = async (request: BlogRequest, onProgress?: (step:
     응답은 마크다운 본문 내용만 보내주세요.
   `;
 
-  const bodyRes = await ai.models.generateContent({ model, contents: [{ text: bodyPrompt }] });
-  const body = bodyRes.text || "";
+  let body = "";
+  try {
+    const bodyRes = await ai.models.generateContent({ model, contents: [{ text: bodyPrompt }] });
+    body = bodyRes.text || "";
+  } catch (err) {
+    console.error("Body generation failed, trying flash model:", err);
+    const bodyRes = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: [{ text: bodyPrompt }] });
+    body = bodyRes.text || "";
+  }
 
   onProgress?.('images');
-  const images = await generateBlogImages(body, title, request.topic, request.logoBase64);
+  const images = await generateBlogImages(body, title, request.topic, request.logosBase64);
 
   onProgress?.('final');
   return {

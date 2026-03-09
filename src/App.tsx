@@ -71,7 +71,7 @@ export default function App() {
     targetAudience: '학부모 및 교육 관계자',
     tone: 'friendly',
     additionalInfo: '',
-    logoBase64: null
+    logosBase64: []
   });
 
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -375,51 +375,54 @@ export default function App() {
 
                     {/* Logo Upload Section */}
                   <div className="space-y-2">
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                      로고 추가 (선택)
-                      <span className="text-[10px] font-normal text-gray-400 lowercase italic">이미지에 로고가 포함됩니다</span>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        로고 추가 (선택)
+                        <span className="text-[10px] font-normal text-gray-400 lowercase italic">이미지에 포함됩니다</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-600">{(request.logosBase64 || []).length}개 선택됨</span>
                     </label>
-                    <div className="flex items-center gap-4 p-4 border border-black/5 rounded-xl bg-gray-50/50">
-                      <div className="w-12 h-12 bg-white rounded-lg border border-black/5 flex items-center justify-center overflow-hidden flex-shrink-0">
-                        {request.logoBase64 ? (
-                          <img src={request.logoBase64} alt="Logo Preview" className="w-full h-full object-contain" />
-                        ) : (
-                          <Sparkles size={20} className="text-gray-300" />
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <input 
-                          type="file" 
-                          id="logo-upload"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setRequest(prev => ({ ...prev, logoBase64: reader.result as string }));
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                          className="hidden"
-                        />
-                        <label 
-                          htmlFor="logo-upload"
-                          className="inline-block px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[10px] font-bold cursor-pointer hover:bg-emerald-100 transition-colors"
-                        >
-                          파일 선택
-                        </label>
-                        {request.logoBase64 && (
+                    
+                    <div className="grid grid-cols-4 gap-2 mb-3">
+                      {(request.logosBase64 || []).map((logo, idx) => (
+                        <div key={idx} className="aspect-square bg-white rounded-lg border border-black/5 flex items-center justify-center overflow-hidden relative group">
+                          <img src={logo} alt={`Logo ${idx + 1}`} className="w-full h-full object-contain p-1" />
                           <button 
-                            type="button"
-                            onClick={() => setRequest(prev => ({ ...prev, logoBase64: null }))}
-                            className="text-[10px] font-bold text-red-500 hover:underline ml-3"
+                            onClick={() => setRequest(prev => ({ 
+                              ...prev, 
+                              logosBase64: prev.logosBase64?.filter((_, i) => i !== idx) 
+                            }))}
+                            className="absolute inset-0 bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
                           >
-                            로고 제거
+                            <X size={14} />
                           </button>
-                        )}
-                      </div>
+                        </div>
+                      ))}
+                      {(request.logosBase64 || []).length < 4 && (
+                        <label className="aspect-square bg-gray-50 border border-dashed border-black/10 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors">
+                          <input 
+                            type="file" 
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              const files = Array.from(e.target.files || []);
+                              files.forEach(file => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setRequest(prev => ({ 
+                                    ...prev, 
+                                    logosBase64: [...(prev.logosBase64 || []), reader.result as string].slice(0, 4)
+                                  }));
+                                };
+                                reader.readAsDataURL(file);
+                              });
+                            }}
+                          />
+                          <PenTool size={14} className="text-gray-400 mb-1" />
+                          <span className="text-[8px] font-bold text-gray-400 uppercase">추가</span>
+                        </label>
+                      )}
                     </div>
                   </div>
 
